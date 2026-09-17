@@ -9,9 +9,11 @@ const SECCIONES = [
 
 export function AdminLayout({
   title,
+  header,
   children,
 }: {
   title: string;
+  header?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -40,9 +42,11 @@ export function AdminLayout({
         </div>
       </header>
 
+      {header}
+
       <main className="mx-auto max-w-7xl px-6 py-8">
-        <h1 className="font-serif text-3xl text-navy-900">{title}</h1>
-        <div className="mt-6">{children}</div>
+        {!header && <h1 className="font-serif text-3xl text-navy-900">{title}</h1>}
+        <div className={header ? undefined : "mt-6"}>{children}</div>
       </main>
     </div>
   );

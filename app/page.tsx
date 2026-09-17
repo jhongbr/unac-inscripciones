@@ -32,9 +32,9 @@ export default function Home() {
             <a href="#programas" className="hover:text-white">
               Programas
             </a>
-            <a href="#admisiones" className="hover:text-white">
+            <Link href="/admin/admisiones" className="hover:text-white">
               Admisiones
-            </a>
+            </Link>
             <a href="#contacto" className="hover:text-white">
               Contacto
             </a>

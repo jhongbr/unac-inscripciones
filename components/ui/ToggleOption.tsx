@@ -16,13 +16,14 @@ export function ToggleOption({
       type="button"
       onClick={onSelect}
       className={cn(
-        "flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors",
+        "rounded-md px-4 py-2 text-sm font-medium transition-colors",
         selected
-          ? "border-green-600 bg-green-50 text-green-700"
-          : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+          ? "bg-green-600 text-white"
+          : "bg-gray-200 text-gray-500 hover:bg-gray-300"
       )}
     >
       {label}
+      {selected && " ✓"}
     </button>
   );
 }

@@ -16,6 +16,13 @@ export default function InscripcionLayout({
               Corporación Universitaria Adventista
             </span>
           </Link>
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-navy-900"
+          >
+            <span aria-hidden="true">←</span>
+            Volver al inicio
+          </Link>
         </div>
       </header>
 

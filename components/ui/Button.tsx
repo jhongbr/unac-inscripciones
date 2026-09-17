@@ -2,10 +2,14 @@ import { ButtonHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import { Spinner } from "./Spinner";
 
-type Variant = "primary" | "secondary" | "outline";
+type Variant = "primary" | "secondary" | "outline" | "warning";
+
+type Size = "md" | "lg";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
+  size?: Size;
+  pill?: boolean;
   loading?: boolean;
   arrow?: boolean;
 }
@@ -17,11 +21,28 @@ const variantClasses: Record<Variant, string> = {
     "bg-navy-900 hover:bg-navy-800 text-white disabled:hover:bg-navy-900",
   outline:
     "border border-gray-300 bg-white text-navy-900 hover:bg-gray-50 disabled:hover:bg-white",
+  warning:
+    "border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:hover:bg-amber-50",
+};
+
+const sizeClasses: Record<Size, string> = {
+  md: "px-5 py-3 text-sm font-medium",
+  lg: "px-6 py-4 text-base font-semibold",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
-    { variant = "primary", loading, arrow, disabled, className, children, ...props },
+    {
+      variant = "primary",
+      size = "md",
+      pill,
+      loading,
+      arrow,
+      disabled,
+      className,
+      children,
+      ...props
+    },
     ref
   ) => {
     return (
@@ -29,7 +50,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || loading}
         className={cn(
-          "inline-flex items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+          "inline-flex items-center justify-center gap-2 transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+          pill ? "rounded-full" : "rounded-lg",
+          sizeClasses[size],
           variantClasses[variant],
           className
         )}
