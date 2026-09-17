@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -34,6 +34,9 @@ interface Solicitud {
 
 const PUNTAJE_MAXIMO_ICFES = 500;
 const PUNTAJE_MINIMO_RECOMENDADO = 250;
+
+const META_MATRICULA_STORAGE_KEY = "unac_meta_matricula_admisiones";
+const META_MATRICULA_POR_DEFECTO = 40;
 
 const SOLICITUDES: Solicitud[] = [
   {
@@ -153,6 +156,31 @@ export default function AdmisionesPage() {
   const [busqueda, setBusqueda] = useState("");
   const [seleccionadoId, setSeleccionadoId] = useState(SOLICITUDES[0]?.id ?? null);
 
+  const [metaMatricula, setMetaMatricula] = useState(META_MATRICULA_POR_DEFECTO);
+  const [editandoMeta, setEditandoMeta] = useState(false);
+  const [borradorMeta, setBorradorMeta] = useState(String(META_MATRICULA_POR_DEFECTO));
+
+  useEffect(() => {
+    const guardada = Number(localStorage.getItem(META_MATRICULA_STORAGE_KEY));
+    if (guardada > 0) {
+      setMetaMatricula(guardada);
+      setBorradorMeta(String(guardada));
+    }
+  }, []);
+
+  const guardarMeta = () => {
+    const valor = Number(borradorMeta);
+    if (!Number.isFinite(valor) || valor <= 0) return;
+    setMetaMatricula(valor);
+    localStorage.setItem(META_MATRICULA_STORAGE_KEY, String(valor));
+    setEditandoMeta(false);
+  };
+
+  const cancelarEdicionMeta = () => {
+    setBorradorMeta(String(metaMatricula));
+    setEditandoMeta(false);
+  };
+
   const conteos = useMemo(
     () => ({
       total: SOLICITUDES.length,
@@ -181,6 +209,7 @@ export default function AdmisionesPage() {
   return (
     <AdminLayout
       title="Admisiones"
+      area="admisiones"
       header={
         <div className="border-b border-navy-800 bg-navy-900">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5">
@@ -224,6 +253,64 @@ export default function AdmisionesPage() {
             className="w-64"
           />
         </div>
+
+        <Card className="mt-6 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                Meta de matrícula · 2025-2
+              </p>
+              <p className="mt-1 text-sm text-gray-500">
+                {conteos.enviados} de {metaMatricula} aspirantes matriculados
+              </p>
+            </div>
+            {editandoMeta ? (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  value={borradorMeta}
+                  onChange={(e) => setBorradorMeta(e.target.value)}
+                  className="w-24"
+                />
+                <button
+                  type="button"
+                  onClick={guardarMeta}
+                  className="rounded-lg bg-navy-900 px-3 py-2 text-sm font-medium text-white hover:bg-navy-800"
+                >
+                  Guardar
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelarEdicionMeta}
+                  className="text-sm text-gray-500 hover:text-gray-700"
+                >
+                  Cancelar
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditandoMeta(true)}
+                className="text-sm font-medium text-green-600 hover:text-green-700"
+              >
+                Editar meta
+              </button>
+            )}
+          </div>
+          <div className="mt-4 h-3 rounded-full bg-gray-100">
+            <div
+              className="h-3 rounded-full bg-green-500 transition-all"
+              style={{
+                width: `${Math.min((conteos.enviados / metaMatricula) * 100, 100)}%`,
+              }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-gray-400">
+            {Math.min(Math.round((conteos.enviados / metaMatricula) * 100), 100)}% de la meta
+            alcanzada
+          </p>
+        </Card>
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card className="overflow-hidden lg:col-span-2">

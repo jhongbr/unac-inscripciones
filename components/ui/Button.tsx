@@ -2,7 +2,7 @@ import { ButtonHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import { Spinner } from "./Spinner";
 
-type Variant = "primary" | "secondary" | "outline" | "warning";
+type Variant = "primary" | "secondary" | "outline" | "warning" | "danger";
 
 type Size = "md" | "lg";
 
@@ -23,6 +23,8 @@ const variantClasses: Record<Variant, string> = {
     "border border-gray-300 bg-white text-navy-900 hover:bg-gray-50 disabled:hover:bg-white",
   warning:
     "border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:hover:bg-amber-50",
+  danger:
+    "border border-red-300 bg-red-50 text-red-700 hover:bg-red-100 disabled:hover:bg-red-50",
 };
 
 const sizeClasses: Record<Size, string> = {

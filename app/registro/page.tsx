@@ -13,7 +13,15 @@ import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { FieldError } from "@/components/ui/FieldError";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { RadioCard } from "@/components/ui/RadioCard";
 import { registrarAspirante } from "@/lib/api";
+import { registrarCuentaAdmin } from "@/lib/auth";
+
+const AREAS_ADMINISTRATIVAS = [
+  { value: "admisiones", label: "Admisiones", description: "Revisión de solicitudes y documentos." },
+  { value: "tesoreria", label: "Tesorería", description: "Verificación de pagos de inscripción." },
+  { value: "programa", label: "Programa", description: "Evaluación académica de candidatos." },
+] as const;
 
 const registroSchema = z
   .object({
@@ -28,6 +36,8 @@ const registroSchema = z
       .string()
       .min(8, "La contraseña debe tener al menos 8 caracteres."),
     confirmarContrasena: z.string(),
+    esAdministrativo: z.boolean().optional(),
+    areaAdministrativa: z.enum(["admisiones", "tesoreria", "programa"]).optional(),
     aceptaTerminos: z.literal(true, {
       message: "Debes aceptar los términos y la política de tratamiento de datos.",
     }),
@@ -35,6 +45,10 @@ const registroSchema = z
   .refine((data) => data.contrasena === data.confirmarContrasena, {
     message: "Las contraseñas no coinciden.",
     path: ["confirmarContrasena"],
+  })
+  .refine((data) => !data.esAdministrativo || !!data.areaAdministrativa, {
+    message: "Selecciona tu área administrativa.",
+    path: ["areaAdministrativa"],
   });
 
 type RegistroFormValues = z.infer<typeof registroSchema>;
@@ -46,13 +60,24 @@ export default function RegistroPage() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<RegistroFormValues>({
     resolver: zodResolver(registroSchema),
   });
 
+  const esAdministrativo = watch("esAdministrativo");
+
   const onSubmit = async (data: RegistroFormValues) => {
     setErrorCorreo(null);
+
+    if (data.esAdministrativo && data.areaAdministrativa) {
+      registrarCuentaAdmin(data.correoElectronico, data.contrasena, data.areaAdministrativa);
+      toast.success("Cuenta administrativa creada correctamente. Ahora puedes iniciar sesión.");
+      router.push("/login");
+      return;
+    }
+
     try {
       await registrarAspirante({
         nombres: data.nombres,
@@ -144,6 +169,33 @@ export default function RegistroPage() {
           />
           <FieldError message={errors.confirmarContrasena?.message} />
         </div>
+
+        <div>
+          <Checkbox
+            id="esAdministrativo"
+            label="Soy personal administrativo de la universidad."
+            {...register("esAdministrativo")}
+          />
+        </div>
+
+        {esAdministrativo && (
+          <div>
+            <Label>Área administrativa</Label>
+            <div className="mt-2 space-y-2">
+              {AREAS_ADMINISTRATIVAS.map((area) => (
+                <RadioCard
+                  key={area.value}
+                  id={`area-${area.value}`}
+                  label={area.label}
+                  description={area.description}
+                  value={area.value}
+                  {...register("areaAdministrativa")}
+                />
+              ))}
+            </div>
+            <FieldError message={errors.areaAdministrativa?.message} />
+          </div>
+        )}
 
         <div>
           <Checkbox

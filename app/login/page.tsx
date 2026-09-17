@@ -12,7 +12,14 @@ import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { FieldError } from "@/components/ui/FieldError";
 import { iniciarSesion } from "@/lib/api";
-import { guardarToken } from "@/lib/auth";
+import { guardarToken, iniciarSesionAdmin } from "@/lib/auth";
+import type { AreaAdministrativa } from "@/types/auth";
+
+const RUTA_POR_AREA: Record<AreaAdministrativa, string> = {
+  admisiones: "/admin/admisiones",
+  tesoreria: "/admin/tesoreria",
+  programa: "/admin/evaluacion",
+};
 
 const loginSchema = z.object({
   correoElectronico: z
@@ -39,6 +46,13 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginFormValues) => {
     setErrorCredenciales(null);
+
+    const areaAdmin = iniciarSesionAdmin(data.correoElectronico, data.contrasena);
+    if (areaAdmin) {
+      router.push(RUTA_POR_AREA[areaAdmin]);
+      return;
+    }
+
     try {
       const { token } = await iniciarSesion(data);
       guardarToken(token);

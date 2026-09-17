@@ -115,6 +115,7 @@ export default function TesoreriaPage() {
   return (
     <AdminLayout
       title="Tesorería"
+      area="tesoreria"
       header={
         <div className="border-b border-navy-800 bg-navy-900">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5">
