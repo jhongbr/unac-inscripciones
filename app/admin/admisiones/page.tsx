@@ -35,8 +35,7 @@ interface Solicitud {
 const PUNTAJE_MAXIMO_ICFES = 500;
 const PUNTAJE_MINIMO_RECOMENDADO = 250;
 
-const META_MATRICULA_STORAGE_KEY = "unac_meta_matricula_admisiones";
-const META_MATRICULA_POR_DEFECTO = 40;
+const PREFIJO_STORAGE_METAS = "unac_meta_admisiones_";
 
 const SOLICITUDES: Solicitud[] = [
   {
@@ -151,45 +150,129 @@ function EstadoDot({ ok }: { ok: boolean }) {
   );
 }
 
+function TarjetaMeta({
+  titulo,
+  descripcion,
+  actual,
+  unidad = "",
+  storageKey,
+  metaPorDefecto,
+  sentido = "meta-minima",
+}: {
+  titulo: string;
+  descripcion: (meta: number) => string;
+  actual: number;
+  unidad?: string;
+  storageKey: string;
+  metaPorDefecto: number;
+  sentido?: "meta-minima" | "meta-maxima";
+}) {
+  const [meta, setMeta] = useState(metaPorDefecto);
+  const [editando, setEditando] = useState(false);
+  const [borrador, setBorrador] = useState(String(metaPorDefecto));
+
+  useEffect(() => {
+    const guardada = Number(localStorage.getItem(PREFIJO_STORAGE_METAS + storageKey));
+    if (guardada > 0) {
+      setMeta(guardada);
+      setBorrador(String(guardada));
+    }
+  }, [storageKey]);
+
+  const guardar = () => {
+    const valor = Number(borrador);
+    if (!Number.isFinite(valor) || valor <= 0) return;
+    setMeta(valor);
+    localStorage.setItem(PREFIJO_STORAGE_METAS + storageKey, String(valor));
+    setEditando(false);
+  };
+
+  const cancelar = () => {
+    setBorrador(String(meta));
+    setEditando(false);
+  };
+
+  const excedida = sentido === "meta-maxima" && actual > meta;
+  const porcentaje = Math.min(Math.round((actual / meta) * 100), 100);
+
+  return (
+    <Card className="p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">{titulo}</p>
+          <p className="mt-1 text-sm text-gray-500">{descripcion(meta)}</p>
+        </div>
+        {editando ? (
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={1}
+              value={borrador}
+              onChange={(e) => setBorrador(e.target.value)}
+              className="w-20"
+            />
+            <span className="text-xs text-gray-400">{unidad}</span>
+            <button
+              type="button"
+              onClick={guardar}
+              className="rounded-lg bg-navy-900 px-3 py-2 text-sm font-medium text-white hover:bg-navy-800"
+            >
+              Guardar
+            </button>
+            <button
+              type="button"
+              onClick={cancelar}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditando(true)}
+            className="text-sm font-medium text-green-600 hover:text-green-700"
+          >
+            Editar meta
+          </button>
+        )}
+      </div>
+      <div className="mt-4 h-3 rounded-full bg-gray-100">
+        <div
+          className={cn(
+            "h-3 rounded-full transition-all",
+            excedida ? "bg-red-500" : "bg-green-500"
+          )}
+          style={{ width: `${porcentaje}%` }}
+        />
+      </div>
+      <p className="mt-2 text-xs text-gray-400">
+        {excedida ? "Meta máxima superada" : `${porcentaje}% de la meta alcanzada`}
+      </p>
+    </Card>
+  );
+}
+
 export default function AdmisionesPage() {
   const [filtro, setFiltro] = useState<(typeof TABS)[number]["value"]>("todas");
   const [busqueda, setBusqueda] = useState("");
   const [seleccionadoId, setSeleccionadoId] = useState(SOLICITUDES[0]?.id ?? null);
 
-  const [metaMatricula, setMetaMatricula] = useState(META_MATRICULA_POR_DEFECTO);
-  const [editandoMeta, setEditandoMeta] = useState(false);
-  const [borradorMeta, setBorradorMeta] = useState(String(META_MATRICULA_POR_DEFECTO));
-
-  useEffect(() => {
-    const guardada = Number(localStorage.getItem(META_MATRICULA_STORAGE_KEY));
-    if (guardada > 0) {
-      setMetaMatricula(guardada);
-      setBorradorMeta(String(guardada));
-    }
-  }, []);
-
-  const guardarMeta = () => {
-    const valor = Number(borradorMeta);
-    if (!Number.isFinite(valor) || valor <= 0) return;
-    setMetaMatricula(valor);
-    localStorage.setItem(META_MATRICULA_STORAGE_KEY, String(valor));
-    setEditandoMeta(false);
-  };
-
-  const cancelarEdicionMeta = () => {
-    setBorradorMeta(String(metaMatricula));
-    setEditandoMeta(false);
-  };
-
-  const conteos = useMemo(
-    () => ({
+  const conteos = useMemo(() => {
+    const enRevision = SOLICITUDES.filter((s) => s.estado === "en-revision").length;
+    const incompletos = SOLICITUDES.filter((s) => s.estado === "incompleto").length;
+    const pendientes = SOLICITUDES.filter((s) => s.estado === "pendiente").length;
+    const completas = SOLICITUDES.filter((s) => s.docsOk && s.pagoOk).length;
+    return {
       total: SOLICITUDES.length,
-      enRevision: SOLICITUDES.filter((s) => s.estado === "en-revision").length,
-      incompletos: SOLICITUDES.filter((s) => s.estado === "incompleto").length,
+      enRevision,
+      incompletos,
+      pendientes,
       enviados: SOLICITUDES.filter((s) => s.estado === "enviado").length,
-    }),
-    []
-  );
+      enCola: enRevision + incompletos + pendientes,
+      porcentajeCompletas: Math.round((completas / SOLICITUDES.length) * 100),
+    };
+  }, []);
 
   const solicitudesFiltradas = useMemo(() => {
     return SOLICITUDES.filter((s) => {
@@ -254,63 +337,40 @@ export default function AdmisionesPage() {
           />
         </div>
 
-        <Card className="mt-6 p-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Meta de matrícula · 2025-2
-              </p>
-              <p className="mt-1 text-sm text-gray-500">
-                {conteos.enviados} de {metaMatricula} aspirantes matriculados
-              </p>
-            </div>
-            {editandoMeta ? (
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min={1}
-                  value={borradorMeta}
-                  onChange={(e) => setBorradorMeta(e.target.value)}
-                  className="w-24"
-                />
-                <button
-                  type="button"
-                  onClick={guardarMeta}
-                  className="rounded-lg bg-navy-900 px-3 py-2 text-sm font-medium text-white hover:bg-navy-800"
-                >
-                  Guardar
-                </button>
-                <button
-                  type="button"
-                  onClick={cancelarEdicionMeta}
-                  className="text-sm text-gray-500 hover:text-gray-700"
-                >
-                  Cancelar
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setEditandoMeta(true)}
-                className="text-sm font-medium text-green-600 hover:text-green-700"
-              >
-                Editar meta
-              </button>
-            )}
-          </div>
-          <div className="mt-4 h-3 rounded-full bg-gray-100">
-            <div
-              className="h-3 rounded-full bg-green-500 transition-all"
-              style={{
-                width: `${Math.min((conteos.enviados / metaMatricula) * 100, 100)}%`,
-              }}
-            />
-          </div>
-          <p className="mt-2 text-xs text-gray-400">
-            {Math.min(Math.round((conteos.enviados / metaMatricula) * 100), 100)}% de la meta
-            alcanzada
-          </p>
-        </Card>
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <TarjetaMeta
+            titulo="Meta de matrícula · 2025-2"
+            descripcion={(meta) => `${conteos.enviados} de ${meta} aspirantes matriculados`}
+            actual={conteos.enviados}
+            storageKey="matricula"
+            metaPorDefecto={40}
+          />
+          <TarjetaMeta
+            titulo="Meta de solicitudes recibidas"
+            descripcion={(meta) => `${conteos.total} de ${meta} solicitudes recibidas`}
+            actual={conteos.total}
+            storageKey="solicitudes"
+            metaPorDefecto={60}
+          />
+          <TarjetaMeta
+            titulo="Meta de documentación completa"
+            descripcion={(meta) =>
+              `${conteos.porcentajeCompletas}% de solicitudes completas (meta: ${meta}%)`
+            }
+            actual={conteos.porcentajeCompletas}
+            unidad="%"
+            storageKey="documentacion"
+            metaPorDefecto={90}
+          />
+          <TarjetaMeta
+            titulo="Solicitudes en cola de revisión"
+            descripcion={(meta) => `${conteos.enCola} de un máximo de ${meta} en cola`}
+            actual={conteos.enCola}
+            storageKey="cola-revision"
+            metaPorDefecto={15}
+            sentido="meta-maxima"
+          />
+        </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card className="overflow-hidden lg:col-span-2">
