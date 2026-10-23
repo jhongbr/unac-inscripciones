@@ -1,47 +1,58 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
-import { cerrarSesionAdmin, obtenerSesionAdmin } from "@/lib/auth";
-import type { AreaAdministrativa, SesionAdmin } from "@/types/auth";
+import { usePathname, useRouter } from "next/navigation";
+import { ReactNode, useEffect } from "react";
+import { cerrarSesion, RUTA_POR_ROL, useSesion } from "@/lib/auth";
+import type { RolPersonal } from "@/types/auth";
 import { Spinner } from "@/components/ui/Spinner";
-import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
 
-const SECCIONES: { href: string; label: string; area: AreaAdministrativa }[] = [
-  { href: "/admin/admisiones", label: "Admisiones", area: "admisiones" },
-  { href: "/admin/tesoreria", label: "Tesorería", area: "tesoreria" },
-  { href: "/admin/evaluacion", label: "Evaluación", area: "programa" },
+const SECCIONES: { href: string; label: string; rol: RolPersonal }[] = [
+  { href: "/admin/admisiones", label: "Admisiones", rol: "ADMISIONES" },
+  { href: "/admin/personal", label: "Personal", rol: "ADMISIONES" },
+  { href: "/admin/tesoreria", label: "Tesorería", rol: "TESORERIA" },
+  { href: "/admin/evaluacion", label: "Evaluación", rol: "EVALUACION" },
 ];
 
+/**
+ * Protege las páginas del panel: exige una sesión de personal administrativo
+ * con el rol de la sección. Un rol distinto se redirige a su propia sección.
+ */
 export function AdminLayout({
   title,
-  area,
+  rol,
   header,
   children,
 }: {
   title: string;
-  area: AreaAdministrativa;
+  rol: RolPersonal;
   header?: ReactNode;
   children: ReactNode;
 }) {
   const router = useRouter();
-  const [sesion, setSesion] = useState<SesionAdmin | null | undefined>(undefined);
+  const pathname = usePathname();
+  const sesion = useSesion();
+
+  const esPersonal = sesion?.tipo === "PERSONAL";
+  const rolSesion = esPersonal ? sesion.rol : null;
+  const autorizado = rolSesion === rol;
 
   useEffect(() => {
-    const actual = obtenerSesionAdmin();
-    setSesion(actual);
-    if (!actual) {
-      router.replace("/login");
+    if (sesion === undefined) return;
+    if (!rolSesion) {
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+    } else if (rolSesion !== rol) {
+      router.replace(RUTA_POR_ROL[rolSesion]);
     }
-  }, [router]);
+  }, [sesion, rolSesion, rol, pathname, router]);
 
   const handleCerrarSesion = () => {
-    cerrarSesionAdmin();
-    router.push("/login");
+    cerrarSesion();
+    router.replace("/login");
   };
 
-  if (sesion === undefined) {
+  if (!esPersonal || !autorizado) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-cream">
         <Spinner className="h-6 w-6 text-navy-900" />
@@ -49,38 +60,35 @@ export function AdminLayout({
     );
   }
 
-  if (!sesion) {
-    return null;
-  }
-
-  const seccionPropia = SECCIONES.find((s) => s.area === sesion.area);
+  const secciones = SECCIONES.filter((s) => s.rol === sesion.rol);
 
   return (
     <div className="min-h-screen bg-cream">
       <header className="border-b border-gray-200 bg-navy-900">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2.5">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+          <Link href={RUTA_POR_ROL[sesion.rol]} className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded bg-green-600 font-serif text-sm font-bold text-white">
               U
             </span>
-            <span className="text-sm font-bold text-white">
-              Panel administrativo
-            </span>
+            <span className="text-sm font-bold text-white">Panel administrativo</span>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <nav className="flex items-center gap-1">
-              {SECCIONES.map((seccion) => (
+              {secciones.map((seccion) => (
                 <Link
                   key={seccion.href}
                   href={seccion.href}
-                  className="rounded-lg px-3 py-2 text-sm text-gray-300 hover:bg-white/10 hover:text-white"
+                  className={cn(
+                    "rounded-lg px-3 py-2 text-sm hover:bg-white/10 hover:text-white",
+                    pathname === seccion.href ? "bg-white/10 text-white" : "text-gray-300"
+                  )}
                 >
                   {seccion.label}
                 </Link>
               ))}
             </nav>
             <div className="flex items-center gap-3 border-l border-white/10 pl-4">
-              <span className="text-xs text-gray-400">{sesion.correoElectronico}</span>
+              <span className="text-xs text-gray-400">{sesion.correo}</span>
               <button
                 type="button"
                 onClick={handleCerrarSesion}
@@ -93,33 +101,11 @@ export function AdminLayout({
         </div>
       </header>
 
-      {sesion.area !== area ? (
-        <main className="mx-auto max-w-2xl px-6 py-16 text-center">
-          <h1 className="font-serif text-2xl text-navy-900">Acceso restringido</h1>
-          <p className="mt-2 text-sm text-gray-500">
-            Tu cuenta solo tiene acceso a la sección de{" "}
-            <span className="font-medium text-navy-900">{seccionPropia?.label}</span>.
-          </p>
-          {seccionPropia && (
-            <Button
-              variant="secondary"
-              arrow
-              className="mt-6"
-              onClick={() => router.push(seccionPropia.href)}
-            >
-              Ir a {seccionPropia.label}
-            </Button>
-          )}
-        </main>
-      ) : (
-        <>
-          {header}
-          <main className="mx-auto max-w-7xl px-6 py-8">
-            {!header && <h1 className="font-serif text-3xl text-navy-900">{title}</h1>}
-            <div className={header ? undefined : "mt-6"}>{children}</div>
-          </main>
-        </>
-      )}
+      {header}
+      <main className="mx-auto max-w-7xl px-6 py-8">
+        {!header && <h1 className="font-serif text-3xl text-navy-900">{title}</h1>}
+        <div className={header ? undefined : "mt-6"}>{children}</div>
+      </main>
     </div>
   );
 }

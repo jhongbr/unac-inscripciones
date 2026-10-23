@@ -5,13 +5,14 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { ToggleOption } from "@/components/ui/ToggleOption";
-import { useInscripcionStore } from "@/store/inscripcionStore";
+import { requisitosCumplidos, useInscripcionStore } from "@/store/inscripcionStore";
 import { cn } from "@/lib/utils";
+import { COSTO_INSCRIPCION, formatearPesos } from "@/lib/config";
 
 const DOCUMENTOS_REQUERIDOS = [
   "Copia del documento de identidad (CC o TI) — ambas caras",
   "Fotografía tamaño 3×4 reciente — fondo blanco, sin lentes",
-  "Comprobante de pago de derechos de inscripción ($145.243 COP)",
+  `Comprobante de pago de derechos de inscripción (${formatearPesos(COSTO_INSCRIPCION)})`,
 ];
 
 export default function RequisitosPage() {
@@ -19,10 +20,7 @@ export default function RequisitosPage() {
   const requisitos = useInscripcionStore((state) => state.requisitos);
   const setRequisitos = useInscripcionStore((state) => state.setRequisitos);
 
-  const puedeContinuar =
-    requisitos.tieneTituloBachiller === "si" &&
-    requisitos.presentoIcfes === "si" &&
-    requisitos.confirmaVeracidad;
+  const puedeContinuar = requisitosCumplidos(requisitos);
 
   const handleContinuar = () => {
     if (!puedeContinuar) return;

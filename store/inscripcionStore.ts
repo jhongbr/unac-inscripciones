@@ -1,66 +1,30 @@
 import { create } from "zustand";
-import type {
-  DatosAcademicos,
-  DatosPago,
-  DatosPersonales,
-  DocumentoAdjunto,
-  InscripcionState,
-  ProgramaSeleccionado,
-  RequisitosData,
-} from "@/types/inscripcion";
+import type { RequisitosData } from "@/types/inscripcion";
 
-interface InscripcionStore extends InscripcionState {
+// El backend es la fuente de verdad de la inscripción; aquí solo vive la
+// respuesta del paso de requisitos, que se envía junto con el formulario.
+interface InscripcionStore {
+  requisitos: RequisitosData;
   setRequisitos: (data: RequisitosData) => void;
-  setFormulario: (data: {
-    datosPersonales: DatosPersonales;
-    datosAcademicos: DatosAcademicos;
-    programa: ProgramaSeleccionado;
-  }) => void;
-  setDocumentoIdentidad: (doc: DocumentoAdjunto | null) => void;
-  setFotoDocumento: (doc: DocumentoAdjunto | null) => void;
-  setPago: (data: DatosPago) => void;
-  confirmarInscripcion: () => string;
   reset: () => void;
 }
 
-const estadoInicial: InscripcionState = {
-  requisitos: {
-    tieneTituloBachiller: null,
-    presentoIcfes: null,
-    confirmaVeracidad: false,
-  },
-  datosPersonales: null,
-  datosAcademicos: null,
-  programa: null,
-  documentoIdentidad: null,
-  fotoDocumento: null,
-  pago: null,
-  numeroInscripcion: null,
+const requisitosIniciales: RequisitosData = {
+  tieneTituloBachiller: null,
+  presentoIcfes: null,
+  confirmaVeracidad: false,
 };
 
-export const useInscripcionStore = create<InscripcionStore>((set, get) => ({
-  ...estadoInicial,
-
+export const useInscripcionStore = create<InscripcionStore>((set) => ({
+  requisitos: requisitosIniciales,
   setRequisitos: (data) => set({ requisitos: data }),
-
-  setFormulario: ({ datosPersonales, datosAcademicos, programa }) =>
-    set({ datosPersonales, datosAcademicos, programa }),
-
-  setDocumentoIdentidad: (doc) => set({ documentoIdentidad: doc }),
-
-  setFotoDocumento: (doc) => set({ fotoDocumento: doc }),
-
-  setPago: (data) => set({ pago: data }),
-
-  confirmarInscripcion: () => {
-    const existente = get().numeroInscripcion;
-    if (existente) return existente;
-    const anio = new Date().getFullYear();
-    const numero = Math.floor(100000 + Math.random() * 900000);
-    const numeroInscripcion = `INS-${anio}-${numero}`;
-    set({ numeroInscripcion });
-    return numeroInscripcion;
-  },
-
-  reset: () => set(estadoInicial),
+  reset: () => set({ requisitos: requisitosIniciales }),
 }));
+
+export function requisitosCumplidos(requisitos: RequisitosData) {
+  return (
+    requisitos.tieneTituloBachiller === "si" &&
+    requisitos.presentoIcfes === "si" &&
+    requisitos.confirmaVeracidad
+  );
+}

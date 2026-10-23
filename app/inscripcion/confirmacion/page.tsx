@@ -1,17 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { useInscripcionStore } from "@/store/inscripcionStore";
-
-const ETIQUETA_METODO_PAGO: Record<string, string> = {
-  transferencia: "Transferencia bancaria",
-  consignacion: "Consignación en banco",
-  pse: "PSE",
-  tarjeta: "Tarjeta de crédito/débito",
-};
+import { useEstadoInscripcion } from "@/components/inscripcion/InscripcionGuard";
+import { etiquetaEstado, formatearFecha } from "@/lib/inscripcion";
+import { useSesion } from "@/lib/auth";
 
 const PROXIMOS_PASOS = [
   {
@@ -19,12 +13,12 @@ const PROXIMOS_PASOS = [
     descripcion: "El equipo de admisiones revisará tus documentos e información académica.",
   },
   {
-    titulo: "Evaluación",
-    descripcion: "Se validará tu puntaje Saber 11 y el cumplimiento de requisitos del programa.",
-  },
-  {
     titulo: "Confirmación de pago",
     descripcion: "Tesorería verificará el pago de los derechos de inscripción.",
+  },
+  {
+    titulo: "Evaluación",
+    descripcion: "Se validará tu puntaje Saber 11 y el cumplimiento de requisitos del programa.",
   },
   {
     titulo: "Notificación de admisión",
@@ -33,27 +27,13 @@ const PROXIMOS_PASOS = [
 ];
 
 export default function ConfirmacionPage() {
-  const router = useRouter();
-  const datosPersonales = useInscripcionStore((s) => s.datosPersonales);
-  const programa = useInscripcionStore((s) => s.programa);
-  const pago = useInscripcionStore((s) => s.pago);
-  const numeroInscripcion = useInscripcionStore((s) => s.numeroInscripcion);
-  const confirmarInscripcion = useInscripcionStore((s) => s.confirmarInscripcion);
+  const estado = useEstadoInscripcion();
+  const sesion = useSesion();
 
-  useEffect(() => {
-    if (!datosPersonales || !programa || !pago) {
-      router.replace("/inscripcion/requisitos");
-      return;
-    }
-    if (!numeroInscripcion) {
-      confirmarInscripcion();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // el guard solo deja entrar aquí con una inscripción con pago registrado
+  if (!estado) return null;
 
-  if (!datosPersonales || !programa || !pago || !numeroInscripcion) {
-    return null;
-  }
+  const badge = etiquetaEstado(estado.estado);
 
   return (
     <div>
@@ -67,18 +47,18 @@ export default function ConfirmacionPage() {
           <span className="italic text-green-600">completada con éxito</span>
         </h1>
         <p className="mt-2 text-sm text-gray-500">
-          Hemos recibido tu inscripción. Guarda tu número de radicado para
-          hacer seguimiento a tu proceso.
+          Hemos recibido tu inscripción. Guarda tu número de inscripción para hacer
+          seguimiento a tu proceso.
         </p>
       </div>
 
       <Card className="mt-8 p-6 text-center">
-        <p className="text-xs uppercase tracking-wide text-gray-500">
-          Número de inscripción
+        <p className="text-xs uppercase tracking-wide text-gray-500">Número de inscripción</p>
+        <p data-testid="numero-inscripcion" className="mt-1 font-serif text-2xl text-navy-900">
+          {estado.numeroInscripcion}
         </p>
-        <p className="mt-1 font-serif text-2xl text-navy-900">{numeroInscripcion}</p>
         <div className="mt-3 flex justify-center">
-          <Badge color="blue">En revisión</Badge>
+          <Badge color={badge.color}>{badge.label}</Badge>
         </div>
       </Card>
 
@@ -86,32 +66,26 @@ export default function ConfirmacionPage() {
         <h2 className="font-serif text-xl text-navy-900">Resumen de tu inscripción</h2>
         <dl className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-xs uppercase tracking-wide text-gray-500">Aspirante</dt>
-            <dd className="mt-0.5 text-navy-900">
-              {datosPersonales.nombres} {datosPersonales.apellidos}
-            </dd>
-          </div>
-          <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Correo</dt>
-            <dd className="mt-0.5 text-navy-900">{datosPersonales.correo}</dd>
+            <dd className="mt-0.5 text-navy-900">
+              {sesion?.tipo === "ASPIRANTE" ? sesion.correo : "—"}
+            </dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Programa</dt>
-            <dd className="mt-0.5 text-navy-900">{programa.programa}</dd>
+            <dd className="mt-0.5 text-navy-900">{estado.programa}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Semestre</dt>
-            <dd className="mt-0.5 text-navy-900">{programa.semestre}</dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-gray-500">Método de pago</dt>
-            <dd className="mt-0.5 text-navy-900">
-              {pago.metodoPago ? ETIQUETA_METODO_PAGO[pago.metodoPago] : "—"}
-            </dd>
+            <dd className="mt-0.5 text-navy-900">{estado.semestre}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Referencia de pago</dt>
-            <dd className="mt-0.5 text-navy-900">{pago.referenciaPago}</dd>
+            <dd className="mt-0.5 text-navy-900">{estado.referenciaPago}</dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-500">Fecha de pago</dt>
+            <dd className="mt-0.5 text-navy-900">{formatearFecha(estado.fechaPago)}</dd>
           </div>
         </dl>
       </Card>
@@ -132,6 +106,12 @@ export default function ConfirmacionPage() {
           ))}
         </ol>
       </Card>
+
+      <div className="mt-6 text-center">
+        <Link href="/estado" className="text-sm font-medium text-green-600 hover:text-green-700">
+          Consultar el estado de mi inscripción →
+        </Link>
+      </div>
     </div>
   );
 }

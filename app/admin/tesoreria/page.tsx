@@ -1,268 +1,368 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Spinner";
+import {
+  ApiError,
+  listarInscripcionesPendientes,
+  obtenerDetalleInscripcion,
+  validarPago,
+} from "@/lib/api";
+import { COSTO_INSCRIPCION, formatearPesos, PERIODO_ACADEMICO } from "@/lib/config";
+import { formatearFecha } from "@/lib/inscripcion";
 import { cn } from "@/lib/utils";
+import type { InscripcionDetalle, InscripcionPendiente } from "@/types/inscripcion";
 
-type EstadoPago = "confirmado" | "por-verificar" | "sin-pago";
+type Carga =
+  | { tipo: "cargando" }
+  | { tipo: "ok"; datos: InscripcionPendiente[] }
+  | { tipo: "error"; mensaje: string };
 
-interface Pago {
-  id: string;
-  inscripcion: string;
-  aspirante: string;
-  monto: number;
-  referencia: string | null;
-  banco: string | null;
-  fecha: string | null;
-  estado: EstadoPago;
+type CargaDetalle =
+  | { tipo: "idle" }
+  | { tipo: "cargando" }
+  | { tipo: "ok"; datos: InscripcionDetalle }
+  | { tipo: "error"; mensaje: string };
+
+function PanelTesoreria() {
+  const [carga, setCarga] = useState<Carga>({ tipo: "cargando" });
+  const [intento, setIntento] = useState(0);
+  const [busqueda, setBusqueda] = useState("");
+  const [seleccionadoId, setSeleccionadoId] = useState<number | null>(null);
+  const [detalle, setDetalle] = useState<CargaDetalle>({ tipo: "idle" });
+  const [observacion, setObservacion] = useState("");
+  const [enviando, setEnviando] = useState<"aprobar" | "rechazar" | null>(null);
+
+  useEffect(() => {
+    let cancelado = false;
+    listarInscripcionesPendientes()
+      .then((datos) => {
+        if (!cancelado) setCarga({ tipo: "ok", datos });
+      })
+      .catch((err: unknown) => {
+        if (cancelado || (err instanceof ApiError && err.status === 401)) return;
+        setCarga({
+          tipo: "error",
+          mensaje: err instanceof Error ? err.message : "No se pudieron cargar las inscripciones.",
+        });
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [intento]);
+
+  const todas = useMemo(() => (carga.tipo === "ok" ? carga.datos : []), [carga]);
+
+  // A Tesorería solo le corresponden las inscripciones con el pago ya
+  // registrado y en espera de verificación (EN_REVISION).
+  const enRevision = useMemo(
+    () => todas.filter((p) => p.estado === "EN_REVISION"),
+    [todas]
+  );
+
+  const filtradas = useMemo(() => {
+    const termino = busqueda.trim().toLowerCase();
+    if (!termino) return enRevision;
+    return enRevision.filter((p) =>
+      [p.nombresAspirante, p.apellidosAspirante, p.correoAspirante, p.numeroInscripcion]
+        .join(" ")
+        .toLowerCase()
+        .includes(termino)
+    );
+  }, [enRevision, busqueda]);
+
+  const seleccionado =
+    filtradas.find((p) => p.inscripcionId === seleccionadoId) ?? filtradas[0] ?? null;
+
+  useEffect(() => {
+    if (!seleccionado) {
+      setDetalle({ tipo: "idle" });
+      return;
+    }
+    let cancelado = false;
+    setDetalle({ tipo: "cargando" });
+    setObservacion("");
+    obtenerDetalleInscripcion(seleccionado.inscripcionId)
+      .then((datos) => {
+        if (!cancelado) setDetalle({ tipo: "ok", datos });
+      })
+      .catch((err: unknown) => {
+        if (cancelado || (err instanceof ApiError && err.status === 401)) return;
+        setDetalle({
+          tipo: "error",
+          mensaje: err instanceof Error ? err.message : "No se pudo cargar el detalle.",
+        });
+      });
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seleccionado?.inscripcionId]);
+
+  const actuar = async (aprobado: boolean) => {
+    if (!seleccionado) return;
+    setEnviando(aprobado ? "aprobar" : "rechazar");
+    try {
+      await validarPago(seleccionado.inscripcionId, aprobado, observacion.trim() || undefined);
+      toast.success(
+        aprobado
+          ? "Pago aprobado. La inscripción pasó a evaluación."
+          : "Pago rechazado. Se notificó al aspirante."
+      );
+      setSeleccionadoId(null);
+      setIntento((n) => n + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      toast.error(err instanceof Error ? err.message : "No se pudo registrar la decisión.");
+    } finally {
+      setEnviando(null);
+    }
+  };
+
+  if (carga.tipo === "cargando") {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner className="h-6 w-6 text-navy-900" />
+      </div>
+    );
+  }
+
+  if (carga.tipo === "error") {
+    return (
+      <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+        <p className="text-sm text-red-700">{carga.mensaje}</p>
+        <Button variant="outline" className="mt-4" onClick={() => setIntento((n) => n + 1)}>
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-navy-900 px-5 py-2.5 text-center">
+            <p data-testid="total-en-revision" className="text-2xl font-bold text-white">
+              {enRevision.length}
+            </p>
+            <p className="text-xs text-gray-400">Pagos por verificar</p>
+          </div>
+          <Button variant="outline" onClick={() => setIntento((n) => n + 1)}>
+            Actualizar
+          </Button>
+        </div>
+        <Input
+          placeholder="Buscar por nombre, correo o número..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          className="w-72"
+        />
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="overflow-hidden lg:col-span-2">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Aspirante</th>
+                  <th className="px-4 py-3 font-medium">Inscripción</th>
+                  <th className="px-4 py-3 font-medium">Fecha</th>
+                  <th className="px-4 py-3 font-medium">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtradas.map((p) => (
+                  <tr
+                    key={p.inscripcionId}
+                    data-testid="fila-inscripcion"
+                    onClick={() => setSeleccionadoId(p.inscripcionId)}
+                    className={cn(
+                      "cursor-pointer hover:bg-gray-50",
+                      seleccionado?.inscripcionId === p.inscripcionId && "bg-green-50/60"
+                    )}
+                  >
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-navy-900">
+                        {p.nombresAspirante} {p.apellidosAspirante}
+                      </p>
+                      <p className="text-xs text-gray-500">{p.correoAspirante}</p>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{p.numeroInscripcion}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatearFecha(p.fechaCreacion)}</td>
+                    <td className="px-4 py-3">
+                      <Badge color="blue">En revisión</Badge>
+                    </td>
+                  </tr>
+                ))}
+                {filtradas.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                      {enRevision.length === 0
+                        ? "No hay pagos pendientes de verificación."
+                        : "No hay inscripciones con este criterio."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card className="h-fit overflow-hidden p-0">
+          {!seleccionado ? (
+            <p className="p-6 text-sm text-gray-500">Selecciona una inscripción para ver el pago.</p>
+          ) : (
+            <>
+              <div className="bg-navy-900 px-6 py-5">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Pago a verificar</p>
+                <h2 className="mt-1 text-lg font-semibold text-white">
+                  {seleccionado.nombresAspirante} {seleccionado.apellidosAspirante}
+                </h2>
+                <p className="text-sm text-gray-400">{seleccionado.numeroInscripcion}</p>
+              </div>
+
+              <div className="space-y-6 p-6">
+                {detalle.tipo === "cargando" && (
+                  <div className="flex justify-center py-8">
+                    <Spinner className="h-5 w-5 text-navy-900" />
+                  </div>
+                )}
+
+                {detalle.tipo === "error" && (
+                  <p className="text-sm text-red-600">{detalle.mensaje}</p>
+                )}
+
+                {detalle.tipo === "ok" && (
+                  <>
+                    <dl className="space-y-3 text-sm">
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-gray-500">Correo</dt>
+                        <dd className="text-navy-900">{detalle.datos.correoAspirante}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-gray-500">Valor esperado</dt>
+                        <dd className="text-navy-900">{formatearPesos(COSTO_INSCRIPCION)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-gray-500">Referencia de pago</dt>
+                        <dd className="font-mono text-navy-900">{detalle.datos.referenciaPago ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-gray-500">Banco</dt>
+                        <dd className="text-navy-900">{detalle.datos.bancoPago ?? "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-gray-500">Fecha de pago</dt>
+                        <dd className="text-navy-900">{formatearFecha(detalle.datos.fechaPago)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-gray-500">Documentos</dt>
+                        <dd className="space-x-3 text-navy-900">
+                          {detalle.datos.documentoIdentidadUrl ? (
+                            <a
+                              href={detalle.datos.documentoIdentidadUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-green-600 underline hover:text-green-700"
+                            >
+                              Documento de identidad
+                            </a>
+                          ) : (
+                            <span className="text-gray-400">Sin documento</span>
+                          )}
+                          {detalle.datos.fotoUrl ? (
+                            <a
+                              href={detalle.datos.fotoUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-green-600 underline hover:text-green-700"
+                            >
+                              Foto
+                            </a>
+                          ) : (
+                            <span className="text-gray-400">Sin foto</span>
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div>
+                      <label htmlFor="observacion-pago" className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                        Observación (opcional)
+                      </label>
+                      <textarea
+                        id="observacion-pago"
+                        rows={3}
+                        value={observacion}
+                        onChange={(e) => setObservacion(e.target.value)}
+                        placeholder="Motivo del rechazo o nota para el aspirante..."
+                        className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                    </div>
+
+                    <div className="space-y-3">
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        pill
+                        loading={enviando === "aprobar"}
+                        disabled={enviando !== null}
+                        className="w-full justify-center"
+                        onClick={() => actuar(true)}
+                      >
+                        ✓ Aprobar pago
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="lg"
+                        pill
+                        loading={enviando === "rechazar"}
+                        disabled={enviando !== null}
+                        className="w-full justify-center"
+                        onClick={() => actuar(false)}
+                      >
+                        ✗ Rechazar pago
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
 }
 
-const MONTO_INSCRIPCION = 145243;
-
-const PAGOS: Pago[] = [
-  {
-    id: "PAG-04821",
-    inscripcion: "INS-2025-04821",
-    aspirante: "María José García López",
-    monto: MONTO_INSCRIPCION,
-    referencia: "TXN-20250810-00298",
-    banco: "Bancolombia",
-    fecha: "10 ago, 14:32",
-    estado: "confirmado",
-  },
-  {
-    id: "PAG-04819",
-    inscripcion: "INS-2025-04819",
-    aspirante: "Sofía Ramírez Cárdenas",
-    monto: MONTO_INSCRIPCION,
-    referencia: "TXN-20250807-00156",
-    banco: "Davivienda",
-    fecha: "07 ago, 09:14",
-    estado: "confirmado",
-  },
-  {
-    id: "PAG-04818",
-    inscripcion: "INS-2025-04818",
-    aspirante: "Diego Hernández Ríos",
-    monto: MONTO_INSCRIPCION,
-    referencia: "TXN-20250807-00143",
-    banco: "PSE / BBVA",
-    fecha: "07 ago, 11:42",
-    estado: "por-verificar",
-  },
-  {
-    id: "PAG-04816",
-    inscripcion: "INS-2025-04816",
-    aspirante: "Andrés Felipe Mora",
-    monto: MONTO_INSCRIPCION,
-    referencia: "TXN-20250806-00099",
-    banco: "Nequi",
-    fecha: "06 ago, 16:55",
-    estado: "confirmado",
-  },
-  {
-    id: "PAG-04820",
-    inscripcion: "INS-2025-04820",
-    aspirante: "Pedro Alonso Martínez",
-    monto: MONTO_INSCRIPCION,
-    referencia: null,
-    banco: null,
-    fecha: null,
-    estado: "sin-pago",
-  },
-  {
-    id: "PAG-04817",
-    inscripcion: "INS-2025-04817",
-    aspirante: "Valentina Ospina Meza",
-    monto: MONTO_INSCRIPCION,
-    referencia: "TXN-20250805-00072",
-    banco: "Bancolombia",
-    fecha: "05 ago, 10:05",
-    estado: "confirmado",
-  },
-];
-
-const BADGE_POR_ESTADO: Record<EstadoPago, { color: "green" | "amber" | "red"; label: string }> = {
-  confirmado: { color: "green", label: "Confirmado" },
-  "por-verificar": { color: "amber", label: "Por verificar" },
-  "sin-pago": { color: "red", label: "Sin pago" },
-};
-
-const formatoMoneda = {
-  format: (valor: number) => `$${valor.toLocaleString("es-CO")} COP`,
-};
-
 export default function TesoreriaPage() {
-  const conteos = useMemo(() => {
-    const confirmados = PAGOS.filter((p) => p.estado === "confirmado");
-    const porVerificar = PAGOS.filter((p) => p.estado === "por-verificar");
-    const sinPago = PAGOS.filter((p) => p.estado === "sin-pago");
-    return {
-      confirmados: confirmados.length,
-      recaudado: confirmados.reduce((acc, p) => acc + p.monto, 0),
-      porVerificar: porVerificar.length,
-      sinPago: sinPago.length,
-      total: PAGOS.length,
-      esperado: PAGOS.reduce((acc, p) => acc + p.monto, 0),
-    };
-  }, []);
-
-  const pagosPorVerificar = PAGOS.filter((p) => p.estado === "por-verificar");
-
   return (
     <AdminLayout
       title="Tesorería"
-      area="tesoreria"
+      rol="TESORERIA"
       header={
         <div className="border-b border-navy-800 bg-navy-900">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5">
             <div>
               <h1 className="text-lg font-bold text-white">Tesorería</h1>
               <p className="text-sm text-gray-400">
-                Verificación de derechos de inscripción · 2025-2
+                Verificación de derechos de inscripción ({formatearPesos(COSTO_INSCRIPCION)}) ·{" "}
+                {PERIODO_ACADEMICO}
               </p>
             </div>
-            <p className="text-sm text-gray-400">
-              Total recaudado:{" "}
-              <span className="text-xl font-bold text-green-400">
-                {formatoMoneda.format(conteos.recaudado)}
-              </span>
-            </p>
           </div>
         </div>
       }
     >
-      <div className="py-8">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-2 border-green-500 p-5">
-            <p className="text-4xl font-bold text-navy-900">{conteos.confirmados}</p>
-            <p className="mt-2 text-sm font-semibold text-green-600">Pagos recibidos</p>
-            <p className="text-xs text-gray-500">{formatoMoneda.format(conteos.recaudado)}</p>
-          </Card>
-          <Card className="border-2 border-amber-500 p-5">
-            <p className="text-4xl font-bold text-navy-900">{conteos.porVerificar}</p>
-            <p className="mt-2 text-sm font-semibold text-amber-600">Por verificar</p>
-            <p className="text-xs text-gray-500">Pendiente de revisión</p>
-          </Card>
-          <Card className="border-2 border-red-500 p-5">
-            <p className="text-4xl font-bold text-navy-900">{conteos.sinPago}</p>
-            <p className="mt-2 text-sm font-semibold text-red-600">Sin pago registrado</p>
-            <p className="text-xs text-gray-500">Notificación enviada</p>
-          </Card>
-          <Card className="border-2 border-blue-500 p-5">
-            <p className="text-4xl font-bold text-navy-900">{conteos.total}</p>
-            <p className="mt-2 text-sm font-semibold text-blue-600">Total esperado</p>
-            <p className="text-xs text-gray-500">{formatoMoneda.format(conteos.esperado)}</p>
-          </Card>
-        </div>
-
-        <Card className="mt-6 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-            <h2 className="text-base font-bold text-navy-900">Registro de pagos</h2>
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-100"
-            >
-              <span aria-hidden="true">↓</span> Exportar
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Aspirante</th>
-                  <th className="px-4 py-3 font-medium">Referencia</th>
-                  <th className="px-4 py-3 font-medium">Banco</th>
-                  <th className="px-4 py-3 font-medium">Fecha</th>
-                  <th className="px-4 py-3 font-medium">Monto</th>
-                  <th className="px-4 py-3 font-medium">Estado</th>
-                  <th className="px-4 py-3 font-medium">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {PAGOS.map((pago) => (
-                  <tr
-                    key={pago.id}
-                    className={cn(
-                      pago.estado === "por-verificar" ? "bg-amber-50" : "hover:bg-gray-50"
-                    )}
-                  >
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-navy-900">{pago.aspirante}</p>
-                      <p className="text-xs text-gray-500">{pago.inscripcion}</p>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{pago.referencia ?? "–"}</td>
-                    <td className="px-4 py-3 text-gray-600">{pago.banco ?? "—"}</td>
-                    <td className="px-4 py-3 text-gray-600">{pago.fecha ?? "—"}</td>
-                    <td className="px-4 py-3 font-semibold text-navy-900">
-                      {formatoMoneda.format(pago.monto)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge color={BADGE_POR_ESTADO[pago.estado].color}>
-                        {BADGE_POR_ESTADO[pago.estado].label}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      {pago.estado === "confirmado" && (
-                        <span className="text-sm font-medium text-green-600">✓ Listo</span>
-                      )}
-                      {pago.estado === "por-verificar" && (
-                        <button
-                          type="button"
-                          className="rounded-lg bg-navy-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-navy-800"
-                        >
-                          Verificar
-                        </button>
-                      )}
-                      {pago.estado === "sin-pago" && (
-                        <button
-                          type="button"
-                          className="rounded-full bg-amber-400 px-3 py-1.5 text-sm font-semibold text-amber-950 hover:bg-amber-500"
-                        >
-                          Notificar
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        {pagosPorVerificar.map((pago) => (
-          <div
-            key={pago.id}
-            className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6"
-          >
-            <div className="flex items-start gap-3">
-              <span className="text-xl" aria-hidden="true">
-                ⚠️
-              </span>
-              <div className="flex-1">
-                <p className="font-semibold text-navy-900">
-                  Pago pendiente de verificación — {pago.aspirante}
-                </p>
-                <p className="mt-1 text-sm text-gray-700">
-                  El aspirante reportó pago vía {pago.banco} con referencia{" "}
-                  <span className="font-mono font-semibold text-navy-900">
-                    {pago.referencia}
-                  </span>
-                  . El sistema no ha confirmado la transacción automáticamente. Verifica
-                  directamente con el banco.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <Button variant="secondary">Confirmar pago</Button>
-                  <Button variant="warning">Solicitar corrección al aspirante</Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <PanelTesoreria />
     </AdminLayout>
   );
 }

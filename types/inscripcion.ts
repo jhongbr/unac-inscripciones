@@ -4,53 +4,103 @@ export interface RequisitosData {
   confirmaVeracidad: boolean;
 }
 
-export interface DatosPersonales {
-  nombres: string;
-  apellidos: string;
+/** Valores de EstadoInscripcion en el backend. */
+export type EstadoInscripcionCodigo =
+  | "PENDIENTE"
+  | "EN_REVISION"
+  | "INCOMPLETO"
+  | "ENVIADO"
+  | "APROBADO"
+  | "RECHAZADO";
+
+/** Cuerpo de POST /api/inscripciones (InscripcionRequestDTO). */
+export interface CrearInscripcionInput {
+  cumpleTituloBachiller: boolean;
+  cumpleIcfes: boolean;
   tipoDocumento: string;
   numeroDocumento: string;
   fechaNacimiento: string;
   genero: string;
-  correo: string;
   telefono: string;
   ciudadResidencia: string;
-}
-
-export interface DatosAcademicos {
   institucionBachillerato: string;
   municipioColegio: string;
-  anioGraduacion: string;
+  anioGraduacion: number;
   codigoResultadoIcfes: string;
-  puntajeGlobalSaber11: string;
-}
-
-export interface ProgramaSeleccionado {
+  puntajeGlobalIcfes: number;
   facultad: string;
   programa: string;
   semestre: string;
 }
 
-export interface DocumentoAdjunto {
-  nombre: string;
-  tamano: number;
-  tipo: string;
+/** Respuesta de crear inscripción, adjuntar documentos, registrar pago, validar pago y evaluar. */
+export interface Inscripcion {
+  id: number;
+  numeroInscripcion: string;
+  estado: EstadoInscripcionCodigo;
+  programa: string;
+  semestre: string;
 }
 
-export interface DatosPago {
-  metodoPago: "transferencia" | "consignacion" | "pse" | "tarjeta" | null;
+/** Cuerpo de POST /api/inscripciones/pago (RegistrarPagoRequestDTO). */
+export interface RegistrarPagoInput {
   referenciaPago: string;
   fechaPago: string;
-  banco: string;
-  confirmaDatos: boolean;
+  bancoPago: string;
+  confirmacionVeracidad: boolean;
 }
 
-export interface InscripcionState {
-  requisitos: RequisitosData;
-  datosPersonales: DatosPersonales | null;
-  datosAcademicos: DatosAcademicos | null;
-  programa: ProgramaSeleccionado | null;
-  documentoIdentidad: DocumentoAdjunto | null;
-  fotoDocumento: DocumentoAdjunto | null;
-  pago: DatosPago | null;
-  numeroInscripcion: string | null;
+/** Respuesta de GET /api/inscripciones/mi-estado. */
+export interface EstadoInscripcion extends Inscripcion {
+  fechaCreacion: string;
+  documentoIdentidadCargado: boolean;
+  fotoCargada: boolean;
+  referenciaPago: string | null;
+  fechaPago: string | null;
+}
+
+/** Elemento de GET /api/admin/inscripciones/pendientes. */
+export interface InscripcionPendiente {
+  inscripcionId: number;
+  numeroInscripcion: string;
+  estado: EstadoInscripcionCodigo;
+  correoAspirante: string;
+  nombresAspirante: string;
+  apellidosAspirante: string;
+  fechaCreacion: string;
+}
+
+/** Respuesta de GET /api/admin/inscripciones/{id} (InscripcionDetalleResponseDTO). */
+export interface InscripcionDetalle {
+  id: number;
+  numeroInscripcion: string;
+  estado: EstadoInscripcionCodigo;
+  observacion: string | null;
+
+  correoAspirante: string;
+  nombresAspirante: string;
+  apellidosAspirante: string;
+
+  tipoDocumento: string;
+  numeroDocumento: string;
+  fechaNacimiento: string;
+  genero: string;
+  telefono: string;
+  ciudadResidencia: string;
+  institucionBachillerato: string;
+  municipioColegio: string;
+  anioGraduacion: number;
+  codigoResultadoIcfes: string;
+  puntajeGlobalIcfes: number;
+  facultad: string;
+  programa: string;
+  semestre: string;
+
+  documentoIdentidadUrl: string | null;
+  fotoUrl: string | null;
+  referenciaPago: string | null;
+  fechaPago: string | null;
+  bancoPago: string | null;
+
+  fechaCreacion: string;
 }

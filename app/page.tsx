@@ -1,4 +1,11 @@
 import Link from "next/link";
+import {
+  CORREO_SOPORTE,
+  COSTO_INSCRIPCION,
+  FECHA_CIERRE_INSCRIPCIONES,
+  formatearPesos,
+  PERIODO_ACADEMICO,
+} from "@/lib/config";
 
 const PASOS = [
   { numero: "01", titulo: "Verificar requisitos" },
@@ -9,10 +16,10 @@ const PASOS = [
 ];
 
 const DATOS_INFERIORES = [
-  { etiqueta: "Cierre de inscripciones", valor: "15 de diciembre de 2026" },
-  { etiqueta: "Derechos de inscripción", valor: "$180.000 COP" },
+  { etiqueta: "Cierre de inscripciones", valor: FECHA_CIERRE_INSCRIPCIONES },
+  { etiqueta: "Derechos de inscripción", valor: formatearPesos(COSTO_INSCRIPCION) },
   { etiqueta: "Duración del programa", valor: "10 semestres" },
-  { etiqueta: "Soporte", valor: "admisiones@unac.edu.co" },
+  { etiqueta: "Soporte", valor: CORREO_SOPORTE },
 ];
 
 export default function Home() {
@@ -29,11 +36,8 @@ export default function Home() {
             </span>
           </div>
           <nav className="hidden items-center gap-8 text-sm text-gray-300 sm:flex">
-            <a href="#programas" className="hover:text-white">
-              Programas
-            </a>
-            <Link href="/admin/admisiones" className="hover:text-white">
-              Admisiones
+            <Link href="/login" className="hover:text-white">
+              Iniciar sesión
             </Link>
             <a href="#contacto" className="hover:text-white">
               Contacto
@@ -47,7 +51,7 @@ export default function Home() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full bg-green-600/15 px-4 py-1.5 text-xs font-medium text-green-400">
               <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-              INSCRIPCIONES ABIERTAS · SEMESTRE 2025-2
+              INSCRIPCIONES ABIERTAS · SEMESTRE {PERIODO_ACADEMICO}
             </span>
 
             <h1 className="mt-6 font-serif text-6xl leading-[1.05] text-white sm:text-7xl">
@@ -71,7 +75,7 @@ export default function Home() {
                 Iniciar inscripción <span aria-hidden="true">→</span>
               </Link>
               <Link
-                href="/login"
+                href="/estado"
                 className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-transparent px-6 py-3 text-sm font-medium text-white hover:bg-white/10"
               >
                 Consultar estado
@@ -95,7 +99,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="border-t border-gray-200 bg-white">
+      <footer id="contacto" className="scroll-mt-20 border-t border-gray-200 bg-white">
         <div className="mx-auto grid max-w-7xl grid-cols-2 gap-8 px-6 py-8 sm:grid-cols-4">
           {DATOS_INFERIORES.map((dato) => (
             <div key={dato.etiqueta}>

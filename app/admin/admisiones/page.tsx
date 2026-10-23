@@ -1,155 +1,33 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Tabs } from "@/components/ui/Tabs";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Spinner";
+import { PendienteIntegracion } from "@/components/ui/PendienteIntegracion";
+import { ApiError, listarInscripcionesPendientes } from "@/lib/api";
+import { PERIODO_ACADEMICO } from "@/lib/config";
+import { formatearFecha } from "@/lib/inscripcion";
 import { cn } from "@/lib/utils";
-
-type EstadoSolicitud =
-  | "pendiente"
-  | "en-revision"
-  | "incompleto"
-  | "enviado"
-  | "no-admitido";
-
-interface Documento {
-  nombre: string;
-  ok: boolean;
-}
-
-interface Solicitud {
-  id: string;
-  nombre: string;
-  fecha: string;
-  docsOk: boolean;
-  pagoOk: boolean;
-  icfes: number | null;
-  estado: EstadoSolicitud;
-  documentos: Documento[];
-}
-
-const PUNTAJE_MAXIMO_ICFES = 500;
-const PUNTAJE_MINIMO_RECOMENDADO = 250;
+import type { InscripcionPendiente } from "@/types/inscripcion";
 
 const PREFIJO_STORAGE_METAS = "unac_meta_admisiones_";
 
-const SOLICITUDES: Solicitud[] = [
-  {
-    id: "INS-2025-04821",
-    nombre: "María José García López",
-    fecha: "08 ago",
-    docsOk: true,
-    pagoOk: true,
-    icfes: 298,
-    estado: "en-revision",
-    documentos: [
-      { nombre: "Copia documento identidad", ok: true },
-      { nombre: "Fotografía 3×4", ok: true },
-      { nombre: "Pago $145.243 COP", ok: true },
-    ],
-  },
-  {
-    id: "INS-2025-04820",
-    nombre: "Pedro Alonso Martínez",
-    fecha: "08 ago",
-    docsOk: false,
-    pagoOk: false,
-    icfes: null,
-    estado: "pendiente",
-    documentos: [
-      { nombre: "Copia documento identidad", ok: false },
-      { nombre: "Fotografía 3×4", ok: false },
-      { nombre: "Pago $145.243 COP", ok: false },
-    ],
-  },
-  {
-    id: "INS-2025-04819",
-    nombre: "Sofía Ramírez Cárdenas",
-    fecha: "07 ago",
-    docsOk: true,
-    pagoOk: true,
-    icfes: 335,
-    estado: "enviado",
-    documentos: [
-      { nombre: "Copia documento identidad", ok: true },
-      { nombre: "Fotografía 3×4", ok: true },
-      { nombre: "Pago $145.243 COP", ok: true },
-    ],
-  },
-  {
-    id: "INS-2025-04818",
-    nombre: "Diego Hernández Ríos",
-    fecha: "07 ago",
-    docsOk: false,
-    pagoOk: true,
-    icfes: 310,
-    estado: "incompleto",
-    documentos: [
-      { nombre: "Copia documento identidad", ok: false },
-      { nombre: "Fotografía 3×4", ok: true },
-      { nombre: "Pago $145.243 COP", ok: true },
-    ],
-  },
-  {
-    id: "INS-2025-04817",
-    nombre: "Valentina Ospina Meza",
-    fecha: "06 ago",
-    docsOk: true,
-    pagoOk: true,
-    icfes: 198,
-    estado: "no-admitido",
-    documentos: [
-      { nombre: "Copia documento identidad", ok: true },
-      { nombre: "Fotografía 3×4", ok: true },
-      { nombre: "Pago $145.243 COP", ok: true },
-    ],
-  },
-  {
-    id: "INS-2025-04816",
-    nombre: "Andrés Felipe Mora",
-    fecha: "06 ago",
-    docsOk: true,
-    pagoOk: true,
-    icfes: 387,
-    estado: "enviado",
-    documentos: [
-      { nombre: "Copia documento identidad", ok: true },
-      { nombre: "Fotografía 3×4", ok: true },
-      { nombre: "Pago $145.243 COP", ok: true },
-    ],
-  },
-];
-
-const TABS: { value: "todas" | "en-revision" | "incompleto" | "enviado"; label: string }[] = [
-  { value: "todas", label: "Todas" },
-  { value: "en-revision", label: "En revisión" },
-  { value: "incompleto", label: "Incompletos" },
-  { value: "enviado", label: "Enviados" },
-];
-
-const BADGE_POR_ESTADO: Record<EstadoSolicitud, { color: "green" | "blue" | "amber" | "red" | "gray"; label: string }> = {
-  pendiente: { color: "gray", label: "Pendiente" },
-  "en-revision": { color: "blue", label: "En revisión" },
-  incompleto: { color: "amber", label: "Incompleto" },
-  enviado: { color: "green", label: "Enviado" },
-  "no-admitido": { color: "red", label: "No admitido" },
-};
-
-function EstadoDot({ ok }: { ok: boolean }) {
-  return (
-    <span
-      className={cn(
-        "inline-block h-2.5 w-2.5 rounded-full",
-        ok ? "bg-green-500" : "bg-red-500"
-      )}
-    />
-  );
+function leerMeta(storageKey: string, porDefecto: number) {
+  try {
+    const guardada = Number(localStorage.getItem(PREFIJO_STORAGE_METAS + storageKey));
+    return guardada > 0 ? guardada : porDefecto;
+  } catch {
+    return porDefecto;
+  }
 }
 
+// Solo se monta en el cliente (AdminLayout no renderiza hijos hasta validar la
+// sesión), así que el inicializador perezoso puede leer localStorage.
 function TarjetaMeta({
   titulo,
   descripcion,
@@ -167,23 +45,19 @@ function TarjetaMeta({
   metaPorDefecto: number;
   sentido?: "meta-minima" | "meta-maxima";
 }) {
-  const [meta, setMeta] = useState(metaPorDefecto);
+  const [meta, setMeta] = useState(() => leerMeta(storageKey, metaPorDefecto));
   const [editando, setEditando] = useState(false);
-  const [borrador, setBorrador] = useState(String(metaPorDefecto));
-
-  useEffect(() => {
-    const guardada = Number(localStorage.getItem(PREFIJO_STORAGE_METAS + storageKey));
-    if (guardada > 0) {
-      setMeta(guardada);
-      setBorrador(String(guardada));
-    }
-  }, [storageKey]);
+  const [borrador, setBorrador] = useState(() => String(meta));
 
   const guardar = () => {
     const valor = Number(borrador);
     if (!Number.isFinite(valor) || valor <= 0) return;
     setMeta(valor);
-    localStorage.setItem(PREFIJO_STORAGE_METAS + storageKey, String(valor));
+    try {
+      localStorage.setItem(PREFIJO_STORAGE_METAS + storageKey, String(valor));
+    } catch {
+      // preferencia local; si no se puede guardar, vale solo para esta vista
+    }
     setEditando(false);
   };
 
@@ -204,13 +78,7 @@ function TarjetaMeta({
         </div>
         {editando ? (
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={1}
-              value={borrador}
-              onChange={(e) => setBorrador(e.target.value)}
-              className="w-20"
-            />
+            <Input type="number" min={1} value={borrador} onChange={(e) => setBorrador(e.target.value)} className="w-20" />
             <span className="text-xs text-gray-400">{unidad}</span>
             <button
               type="button"
@@ -219,11 +87,7 @@ function TarjetaMeta({
             >
               Guardar
             </button>
-            <button
-              type="button"
-              onClick={cancelar}
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
+            <button type="button" onClick={cancelar} className="text-sm text-gray-500 hover:text-gray-700">
               Cancelar
             </button>
           </div>
@@ -239,10 +103,7 @@ function TarjetaMeta({
       </div>
       <div className="mt-4 h-3 rounded-full bg-gray-100">
         <div
-          className={cn(
-            "h-3 rounded-full transition-all",
-            excedida ? "bg-red-500" : "bg-green-500"
-          )}
+          className={cn("h-3 rounded-full transition-all", excedida ? "bg-red-500" : "bg-green-500")}
           style={{ width: `${porcentaje}%` }}
         />
       </div>
@@ -253,301 +114,244 @@ function TarjetaMeta({
   );
 }
 
-export default function AdmisionesPage() {
-  const [filtro, setFiltro] = useState<(typeof TABS)[number]["value"]>("todas");
+type Carga =
+  | { tipo: "cargando" }
+  | { tipo: "ok"; datos: InscripcionPendiente[] }
+  | { tipo: "error"; mensaje: string };
+
+function PanelAdmisiones() {
+  const [carga, setCarga] = useState<Carga>({ tipo: "cargando" });
+  const [intento, setIntento] = useState(0);
   const [busqueda, setBusqueda] = useState("");
-  const [seleccionadoId, setSeleccionadoId] = useState(SOLICITUDES[0]?.id ?? null);
+  const [seleccionadoId, setSeleccionadoId] = useState<number | null>(null);
 
-  const conteos = useMemo(() => {
-    const enRevision = SOLICITUDES.filter((s) => s.estado === "en-revision").length;
-    const incompletos = SOLICITUDES.filter((s) => s.estado === "incompleto").length;
-    const pendientes = SOLICITUDES.filter((s) => s.estado === "pendiente").length;
-    const completas = SOLICITUDES.filter((s) => s.docsOk && s.pagoOk).length;
-    return {
-      total: SOLICITUDES.length,
-      enRevision,
-      incompletos,
-      pendientes,
-      enviados: SOLICITUDES.filter((s) => s.estado === "enviado").length,
-      enCola: enRevision + incompletos + pendientes,
-      porcentajeCompletas: Math.round((completas / SOLICITUDES.length) * 100),
+  useEffect(() => {
+    let cancelado = false;
+    listarInscripcionesPendientes()
+      .then((datos) => {
+        if (!cancelado) setCarga({ tipo: "ok", datos });
+      })
+      .catch((err: unknown) => {
+        if (cancelado || (err instanceof ApiError && err.status === 401)) return;
+        setCarga({
+          tipo: "error",
+          mensaje: err instanceof Error ? err.message : "No se pudieron cargar las inscripciones.",
+        });
+      });
+    return () => {
+      cancelado = true;
     };
-  }, []);
+  }, [intento]);
 
-  const solicitudesFiltradas = useMemo(() => {
-    return SOLICITUDES.filter((s) => {
-      const coincideTab = filtro === "todas" || s.estado === filtro;
-      const coincideBusqueda = s.nombre
+  const pendientes = useMemo(() => (carga.tipo === "ok" ? carga.datos : []), [carga]);
+
+  const filtradas = useMemo(() => {
+    const termino = busqueda.trim().toLowerCase();
+    if (!termino) return pendientes;
+    return pendientes.filter((p) =>
+      [p.nombresAspirante, p.apellidosAspirante, p.correoAspirante, p.numeroInscripcion]
+        .join(" ")
         .toLowerCase()
-        .includes(busqueda.trim().toLowerCase());
-      return coincideTab && coincideBusqueda;
-    });
-  }, [filtro, busqueda]);
+        .includes(termino)
+    );
+  }, [pendientes, busqueda]);
 
   const seleccionado =
-    SOLICITUDES.find((s) => s.id === seleccionadoId) ??
-    solicitudesFiltradas[0] ??
-    null;
+    pendientes.find((p) => p.inscripcionId === seleccionadoId) ?? filtradas[0] ?? null;
 
+  if (carga.tipo === "cargando") {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner className="h-6 w-6 text-navy-900" />
+      </div>
+    );
+  }
+
+  if (carga.tipo === "error") {
+    return (
+      <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+        <p className="text-sm text-red-700">{carga.mensaje}</p>
+        <Button variant="outline" className="mt-4" onClick={() => setIntento((n) => n + 1)}>
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-navy-900 px-5 py-2.5 text-center">
+            <p data-testid="total-pendientes" className="text-2xl font-bold text-white">
+              {pendientes.length}
+            </p>
+            <p className="text-xs text-gray-400">Pendientes</p>
+          </div>
+          <Button variant="outline" onClick={() => setIntento((n) => n + 1)}>
+            Actualizar
+          </Button>
+        </div>
+        <Input
+          placeholder="Buscar por nombre, correo o número..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          className="w-72"
+        />
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <TarjetaMeta
+          titulo="Solicitudes en cola de revisión"
+          descripcion={(meta) => `${pendientes.length} de un máximo de ${meta} en cola`}
+          actual={pendientes.length}
+          storageKey="cola-revision"
+          metaPorDefecto={15}
+          sentido="meta-maxima"
+        />
+        <PendienteIntegracion titulo="Más indicadores pendientes de integración">
+          Matrícula, solicitudes recibidas y documentación completa requieren un endpoint de
+          estadísticas por estado de inscripción en el backend.
+        </PendienteIntegracion>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="overflow-hidden lg:col-span-2">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Aspirante</th>
+                  <th className="px-4 py-3 font-medium">Inscripción</th>
+                  <th className="px-4 py-3 font-medium">Fecha</th>
+                  <th className="px-4 py-3 font-medium">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtradas.map((p) => (
+                  <tr
+                    key={p.inscripcionId}
+                    data-testid="fila-inscripcion"
+                    onClick={() => setSeleccionadoId(p.inscripcionId)}
+                    className={cn(
+                      "cursor-pointer hover:bg-gray-50",
+                      seleccionado?.inscripcionId === p.inscripcionId && "bg-green-50/60"
+                    )}
+                  >
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-navy-900">
+                        {p.nombresAspirante} {p.apellidosAspirante}
+                      </p>
+                      <p className="text-xs text-gray-500">{p.correoAspirante}</p>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{p.numeroInscripcion}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatearFecha(p.fechaCreacion)}</td>
+                    <td className="px-4 py-3">
+                      <Badge color="gray">Pendiente</Badge>
+                    </td>
+                  </tr>
+                ))}
+                {filtradas.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                      {pendientes.length === 0
+                        ? "No hay inscripciones pendientes."
+                        : "No hay inscripciones con este criterio."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card className="h-fit overflow-hidden p-0">
+          {seleccionado ? (
+            <>
+              <div className="bg-navy-900 px-6 py-5">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Solicitud seleccionada</p>
+                <h2 className="mt-1 text-lg font-semibold text-white">
+                  {seleccionado.nombresAspirante} {seleccionado.apellidosAspirante}
+                </h2>
+                <p className="text-sm text-gray-400">{seleccionado.numeroInscripcion}</p>
+              </div>
+
+              <div className="space-y-6 p-6">
+                <dl className="space-y-3 text-sm">
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-gray-500">Correo</dt>
+                    <dd className="text-navy-900">{seleccionado.correoAspirante}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-gray-500">Fecha de inscripción</dt>
+                    <dd className="text-navy-900">{formatearFecha(seleccionado.fechaCreacion)}</dd>
+                  </div>
+                </dl>
+
+                <PendienteIntegracion titulo="Detalle no disponible aún">
+                  Documentos, pago y puntaje ICFES de cada solicitud dependen de un endpoint de
+                  detalle que el backend todavía no expone.
+                </PendienteIntegracion>
+
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Acciones</p>
+                  <div className="mt-3 space-y-3">
+                    {["✓ Enviar al Sistema Académico", "⚠ Solicitar corrección", "✎ Ver documentos adjuntos"].map(
+                      (accion) => (
+                        <Button
+                          key={accion}
+                          variant="outline"
+                          size="lg"
+                          pill
+                          disabled
+                          title="No disponible aún: el backend no tiene un endpoint para esta acción."
+                          className="w-full justify-center"
+                        >
+                          {accion}
+                        </Button>
+                      )
+                    )}
+                    <p className="text-xs text-gray-500">
+                      No disponible aún: el backend no tiene endpoints para estas acciones.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="p-6 text-sm text-gray-500">Selecciona una solicitud para ver el detalle.</p>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export default function AdmisionesPage() {
   return (
     <AdminLayout
       title="Admisiones"
-      area="admisiones"
+      rol="ADMISIONES"
       header={
         <div className="border-b border-navy-800 bg-navy-900">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5">
             <div>
-              <h1 className="text-lg font-bold text-white">
-                Departamento de Admisiones
-              </h1>
+              <h1 className="text-lg font-bold text-white">Departamento de Admisiones</h1>
               <p className="text-sm text-gray-400">
-                UNAC · Ingeniería de Sistemas · 2025-2
+                UNAC · Inscripciones pendientes · {PERIODO_ACADEMICO}
               </p>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <div className="rounded-xl bg-white/10 px-5 py-2.5 text-center">
-                <p className="text-2xl font-bold text-white">{conteos.total}</p>
-                <p className="text-xs text-gray-400">Total</p>
-              </div>
-              <div className="rounded-xl bg-white/10 px-5 py-2.5 text-center">
-                <p className="text-2xl font-bold text-blue-400">{conteos.enRevision}</p>
-                <p className="text-xs text-gray-400">En revisión</p>
-              </div>
-              <div className="rounded-xl bg-white/10 px-5 py-2.5 text-center">
-                <p className="text-2xl font-bold text-amber-400">{conteos.incompletos}</p>
-                <p className="text-xs text-gray-400">Incompletos</p>
-              </div>
-              <div className="rounded-xl bg-white/10 px-5 py-2.5 text-center">
-                <p className="text-2xl font-bold text-green-400">{conteos.enviados}</p>
-                <p className="text-xs text-gray-400">Enviados</p>
-              </div>
-            </div>
+            <Link
+              href="/admin/personal"
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/10"
+            >
+              Registrar personal
+            </Link>
           </div>
         </div>
       }
     >
-      <div className="py-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <Tabs options={TABS} value={filtro} onChange={setFiltro} />
-          <Input
-            placeholder="Buscar aspirante..."
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            className="w-64"
-          />
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <TarjetaMeta
-            titulo="Meta de matrícula · 2025-2"
-            descripcion={(meta) => `${conteos.enviados} de ${meta} aspirantes matriculados`}
-            actual={conteos.enviados}
-            storageKey="matricula"
-            metaPorDefecto={40}
-          />
-          <TarjetaMeta
-            titulo="Meta de solicitudes recibidas"
-            descripcion={(meta) => `${conteos.total} de ${meta} solicitudes recibidas`}
-            actual={conteos.total}
-            storageKey="solicitudes"
-            metaPorDefecto={60}
-          />
-          <TarjetaMeta
-            titulo="Meta de documentación completa"
-            descripcion={(meta) =>
-              `${conteos.porcentajeCompletas}% de solicitudes completas (meta: ${meta}%)`
-            }
-            actual={conteos.porcentajeCompletas}
-            unidad="%"
-            storageKey="documentacion"
-            metaPorDefecto={90}
-          />
-          <TarjetaMeta
-            titulo="Solicitudes en cola de revisión"
-            descripcion={(meta) => `${conteos.enCola} de un máximo de ${meta} en cola`}
-            actual={conteos.enCola}
-            storageKey="cola-revision"
-            metaPorDefecto={15}
-            sentido="meta-maxima"
-          />
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Card className="overflow-hidden lg:col-span-2">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Aspirante</th>
-                    <th className="px-4 py-3 font-medium">Fecha</th>
-                    <th className="px-4 py-3 font-medium">Docs</th>
-                    <th className="px-4 py-3 font-medium">Pago</th>
-                    <th className="px-4 py-3 font-medium">ICFES</th>
-                    <th className="px-4 py-3 font-medium">Estado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {solicitudesFiltradas.map((solicitud) => (
-                    <tr
-                      key={solicitud.id}
-                      onClick={() => setSeleccionadoId(solicitud.id)}
-                      className={cn(
-                        "cursor-pointer hover:bg-gray-50",
-                        seleccionado?.id === solicitud.id && "bg-green-50/60"
-                      )}
-                    >
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-navy-900">{solicitud.nombre}</p>
-                        <p className="text-xs text-gray-500">{solicitud.id}</p>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{solicitud.fecha}</td>
-                      <td className="px-4 py-3">
-                        <EstadoDot ok={solicitud.docsOk} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <EstadoDot ok={solicitud.pagoOk} />
-                      </td>
-                      <td className="px-4 py-3">
-                        {solicitud.icfes === null ? (
-                          <span className="text-gray-400">--</span>
-                        ) : (
-                          <span
-                            className={cn(
-                              "font-semibold",
-                              solicitud.icfes >= PUNTAJE_MINIMO_RECOMENDADO
-                                ? "text-green-600"
-                                : "text-amber-600"
-                            )}
-                          >
-                            {solicitud.icfes}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge color={BADGE_POR_ESTADO[solicitud.estado].color}>
-                          {BADGE_POR_ESTADO[solicitud.estado].label}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                  {solicitudesFiltradas.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                        No hay solicitudes con este criterio.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          <Card className="h-fit overflow-hidden p-0">
-            {seleccionado ? (
-              <>
-                <div className="bg-navy-900 px-6 py-5">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">
-                    Solicitud seleccionada
-                  </p>
-                  <h2 className="mt-1 text-lg font-semibold text-white">
-                    {seleccionado.nombre}
-                  </h2>
-                  <p className="text-sm text-gray-400">{seleccionado.id}</p>
-                </div>
-
-                <div className="space-y-6 p-6">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                      Documentos
-                    </p>
-                    <ul className="mt-3 space-y-2">
-                      {seleccionado.documentos.map((doc) => (
-                        <li
-                          key={doc.nombre}
-                          className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-4 text-sm"
-                        >
-                          <span className="text-navy-900">{doc.nombre}</span>
-                          <span
-                            className={cn(
-                              "text-xs font-semibold",
-                              doc.ok ? "text-green-600" : "text-red-600"
-                            )}
-                          >
-                            {doc.ok ? "✓ OK" : "Falta"}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                      ICFES Saber 11
-                    </p>
-                    <div className="mt-3 rounded-xl bg-gray-50 p-5">
-                      <div className="flex items-end justify-between">
-                        <span className="font-serif text-3xl text-navy-900">
-                          {seleccionado.icfes ?? "--"}
-                        </span>
-                        <span className="pb-0.5 text-sm text-gray-400">
-                          / {PUNTAJE_MAXIMO_ICFES}
-                        </span>
-                      </div>
-                      <div className="mt-3 h-2 rounded-full bg-gray-200">
-                        <div
-                          className="h-2 rounded-full bg-green-500"
-                          style={{
-                            width: `${((seleccionado.icfes ?? 0) / PUNTAJE_MAXIMO_ICFES) * 100}%`,
-                          }}
-                        />
-                      </div>
-                      <p className="mt-2 text-xs text-gray-500">
-                        Mínimo recomendado: {PUNTAJE_MINIMO_RECOMENDADO} pts
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                      Acciones
-                    </p>
-                    <div className="mt-3 space-y-3">
-                      <Button
-                        variant="primary"
-                        size="lg"
-                        pill
-                        className="w-full justify-center"
-                      >
-                        ✓ Enviar al Sistema Académico
-                      </Button>
-                      <Button
-                        variant="warning"
-                        size="lg"
-                        pill
-                        className="w-full justify-center"
-                      >
-                        ⚠ Solicitar corrección
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="lg"
-                        pill
-                        className="w-full justify-center"
-                      >
-                        ✎ Ver documentos adjuntos
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <p className="p-6 text-sm text-gray-500">
-                Selecciona una solicitud para ver el detalle.
-              </p>
-            )}
-          </Card>
-        </div>
-      </div>
+      <PanelAdmisiones />
     </AdminLayout>
   );
 }

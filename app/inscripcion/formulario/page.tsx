@@ -1,29 +1,29 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Label } from "@/components/ui/Label";
 import { FieldError } from "@/components/ui/FieldError";
+import { ApiError, crearInscripcion } from "@/lib/api";
+import { SEMESTRES_DISPONIBLES } from "@/lib/config";
+import { RUTAS_INSCRIPCION } from "@/lib/inscripcion";
 import { useInscripcionStore } from "@/store/inscripcionStore";
 
+const PUNTAJE_MAXIMO_SABER11 = 500;
+
 const formularioSchema = z.object({
-  nombres: z.string().trim().min(1, "Los nombres son obligatorios."),
-  apellidos: z.string().trim().min(1, "Los apellidos son obligatorios."),
   tipoDocumento: z.string().min(1, "Selecciona un tipo de documento."),
   numeroDocumento: z.string().trim().min(4, "Ingresa un número de documento válido."),
   fechaNacimiento: z.string().min(1, "La fecha de nacimiento es obligatoria."),
   genero: z.string().min(1, "Selecciona un género."),
-  correo: z
-    .string()
-    .trim()
-    .min(1, "El correo electrónico es obligatorio.")
-    .email("Ingresa un correo electrónico válido."),
   telefono: z.string().trim().min(7, "Ingresa un teléfono válido."),
   ciudadResidencia: z.string().trim().min(1, "La ciudad de residencia es obligatoria."),
 
@@ -43,7 +43,10 @@ const formularioSchema = z.object({
   puntajeGlobalSaber11: z
     .string()
     .trim()
-    .regex(/^\d{1,3}$/, "Ingresa un puntaje válido (0-500)."),
+    .regex(/^\d{1,3}$/, `Ingresa un puntaje válido (0-${PUNTAJE_MAXIMO_SABER11}).`)
+    .refine((valor) => Number(valor) <= PUNTAJE_MAXIMO_SABER11, {
+      message: `Ingresa un puntaje válido (0-${PUNTAJE_MAXIMO_SABER11}).`,
+    }),
 
   facultad: z.string().min(1, "Selecciona una facultad."),
   programa: z.string().min(1, "Selecciona un programa."),
@@ -60,91 +63,86 @@ const PROGRAMAS_POR_FACULTAD: Record<string, string[]> = {
 
 export default function FormularioPage() {
   const router = useRouter();
-  const datosPersonales = useInscripcionStore((s) => s.datosPersonales);
-  const datosAcademicos = useInscripcionStore((s) => s.datosAcademicos);
-  const programa = useInscripcionStore((s) => s.programa);
-  const setFormulario = useInscripcionStore((s) => s.setFormulario);
+  const requisitos = useInscripcionStore((s) => s.requisitos);
+  const [errorServidor, setErrorServidor] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<FormularioValues>({
     resolver: zodResolver(formularioSchema),
-    defaultValues: {
-      ...datosPersonales,
-      ...datosAcademicos,
-      ...programa,
-    },
   });
 
-  const facultadSeleccionada = watch("facultad");
+  const facultadSeleccionada = useWatch({ control, name: "facultad" });
 
   const onSubmit = async (data: FormularioValues) => {
-    setFormulario({
-      datosPersonales: {
-        nombres: data.nombres,
-        apellidos: data.apellidos,
+    setErrorServidor(null);
+    try {
+      await crearInscripcion({
+        cumpleTituloBachiller: requisitos.tieneTituloBachiller === "si",
+        cumpleIcfes: requisitos.presentoIcfes === "si",
         tipoDocumento: data.tipoDocumento,
         numeroDocumento: data.numeroDocumento,
         fechaNacimiento: data.fechaNacimiento,
         genero: data.genero,
-        correo: data.correo,
         telefono: data.telefono,
         ciudadResidencia: data.ciudadResidencia,
-      },
-      datosAcademicos: {
         institucionBachillerato: data.institucionBachillerato,
         municipioColegio: data.municipioColegio,
-        anioGraduacion: data.anioGraduacion,
+        anioGraduacion: Number(data.anioGraduacion),
         codigoResultadoIcfes: data.codigoResultadoIcfes,
-        puntajeGlobalSaber11: data.puntajeGlobalSaber11,
-      },
-      programa: {
+        puntajeGlobalIcfes: Number(data.puntajeGlobalSaber11),
         facultad: data.facultad,
         programa: data.programa,
         semestre: data.semestre,
-      },
-    });
-    router.push("/inscripcion/documentos");
+      });
+      toast.success("Inscripción creada. Ahora adjunta tus documentos.");
+      router.push(RUTAS_INSCRIPCION.documentos);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      if (err instanceof ApiError && err.status === 409) {
+        // ya existe una inscripción: el guard lo lleva al paso que le corresponde
+        toast.info(err.message);
+        router.push(RUTAS_INSCRIPCION.documentos);
+        return;
+      }
+      setErrorServidor(err instanceof Error ? err.message : "Ocurrió un error inesperado.");
+    }
   };
 
   return (
     <div>
-      <h1 className="font-serif text-3xl text-navy-900">
+      <p className="text-xs font-bold tracking-wide text-green-600">PASO 2 DE 5</p>
+      <h1 className="mt-2 font-serif text-3xl text-navy-900">
         Formulario de
         <br />
         <span className="italic">inscripción</span>
       </h1>
       <p className="mt-2 text-sm text-gray-500">
-        Completa tus datos personales, académicos y el programa al que
-        deseas aplicar.
+        Completa tus datos personales, académicos y el programa al que deseas aplicar. Tu
+        nombre y correo se toman de tu cuenta.
       </p>
 
       <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-8" noValidate>
+        {errorServidor && (
+          <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorServidor}
+          </div>
+        )}
+
         <Card className="p-6">
           <h2 className="font-serif text-xl text-navy-900">Datos personales</h2>
           <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
             <div>
-              <Label htmlFor="nombres">Nombres</Label>
-              <Input id="nombres" hasError={!!errors.nombres} {...register("nombres")} />
-              <FieldError message={errors.nombres?.message} />
-            </div>
-            <div>
-              <Label htmlFor="apellidos">Apellidos</Label>
-              <Input id="apellidos" hasError={!!errors.apellidos} {...register("apellidos")} />
-              <FieldError message={errors.apellidos?.message} />
-            </div>
-
-            <div>
               <Label htmlFor="tipoDocumento">Tipo de documento</Label>
               <Select id="tipoDocumento" hasError={!!errors.tipoDocumento} {...register("tipoDocumento")}>
                 <option value="">Selecciona</option>
-                <option value="CC">Cédula de ciudadanía</option>
-                <option value="TI">Tarjeta de identidad</option>
-                <option value="CE">Cédula de extranjería</option>
-                <option value="PA">Pasaporte</option>
+                <option value="CEDULA_CIUDADANIA">Cédula de ciudadanía</option>
+                <option value="TARJETA_IDENTIDAD">Tarjeta de identidad</option>
+                <option value="CEDULA_EXTRANJERA">Cédula de extranjería</option>
+                <option value="PASAPORTE">Pasaporte</option>
               </Select>
               <FieldError message={errors.tipoDocumento?.message} />
             </div>
@@ -163,26 +161,20 @@ export default function FormularioPage() {
               <Label htmlFor="genero">Género</Label>
               <Select id="genero" hasError={!!errors.genero} {...register("genero")}>
                 <option value="">Selecciona</option>
-                <option value="femenino">Femenino</option>
-                <option value="masculino">Masculino</option>
-                <option value="otro">Otro</option>
-                <option value="prefiero-no-decir">Prefiero no decir</option>
+                <option value="FEMENINO">Femenino</option>
+                <option value="MASCULINO">Masculino</option>
+                <option value="OTRO">Otro</option>
+                <option value="PREFIERO_NO_DECIRLO">Prefiero no decir</option>
               </Select>
               <FieldError message={errors.genero?.message} />
             </div>
 
             <div>
-              <Label htmlFor="correo">Correo electrónico</Label>
-              <Input id="correo" type="email" hasError={!!errors.correo} {...register("correo")} />
-              <FieldError message={errors.correo?.message} />
-            </div>
-            <div>
               <Label htmlFor="telefono">Teléfono</Label>
               <Input id="telefono" hasError={!!errors.telefono} {...register("telefono")} />
               <FieldError message={errors.telefono?.message} />
             </div>
-
-            <div className="sm:col-span-2">
+            <div>
               <Label htmlFor="ciudadResidencia">Ciudad de residencia</Label>
               <Input id="ciudadResidencia" hasError={!!errors.ciudadResidencia} {...register("ciudadResidencia")} />
               <FieldError message={errors.ciudadResidencia?.message} />
@@ -206,7 +198,7 @@ export default function FormularioPage() {
             </div>
             <div>
               <Label htmlFor="anioGraduacion">Año de graduación</Label>
-              <Input id="anioGraduacion" placeholder="AAAA" hasError={!!errors.anioGraduacion} {...register("anioGraduacion")} />
+              <Input id="anioGraduacion" placeholder="AAAA" inputMode="numeric" hasError={!!errors.anioGraduacion} {...register("anioGraduacion")} />
               <FieldError message={errors.anioGraduacion?.message} />
             </div>
 
@@ -217,7 +209,7 @@ export default function FormularioPage() {
             </div>
             <div>
               <Label htmlFor="puntajeGlobalSaber11">Puntaje global Saber 11</Label>
-              <Input id="puntajeGlobalSaber11" placeholder="0-500" hasError={!!errors.puntajeGlobalSaber11} {...register("puntajeGlobalSaber11")} />
+              <Input id="puntajeGlobalSaber11" placeholder={`0-${PUNTAJE_MAXIMO_SABER11}`} inputMode="numeric" hasError={!!errors.puntajeGlobalSaber11} {...register("puntajeGlobalSaber11")} />
               <FieldError message={errors.puntajeGlobalSaber11?.message} />
             </div>
           </div>
@@ -255,8 +247,11 @@ export default function FormularioPage() {
               <Label htmlFor="semestre">Semestre</Label>
               <Select id="semestre" hasError={!!errors.semestre} {...register("semestre")}>
                 <option value="">Selecciona</option>
-                <option value="2025-2">2025-2</option>
-                <option value="2026-1">2026-1</option>
+                {SEMESTRES_DISPONIBLES.map((semestre) => (
+                  <option key={semestre} value={semestre}>
+                    {semestre}
+                  </option>
+                ))}
               </Select>
               <FieldError message={errors.semestre?.message} />
             </div>

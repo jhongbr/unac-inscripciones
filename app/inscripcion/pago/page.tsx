@@ -1,43 +1,35 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { FieldError } from "@/components/ui/FieldError";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { RadioCard } from "@/components/ui/RadioCard";
-import { useInscripcionStore } from "@/store/inscripcionStore";
+import { ApiError, registrarPago } from "@/lib/api";
+import { COSTO_INSCRIPCION, formatearPesos } from "@/lib/config";
+import { RUTAS_INSCRIPCION } from "@/lib/inscripcion";
 
 const pagoSchema = z.object({
-  metodoPago: z.enum(["transferencia", "consignacion", "pse", "tarjeta"], {
-    message: "Selecciona un método de pago.",
-  }),
   referenciaPago: z.string().trim().min(1, "La referencia de pago es obligatoria."),
   fechaPago: z.string().min(1, "La fecha de pago es obligatoria."),
-  banco: z.string().trim().min(1, "El banco es obligatorio."),
-  confirmaDatos: z.literal(true, {
+  bancoPago: z.string().trim().min(1, "El banco es obligatorio."),
+  confirmacionVeracidad: z.literal(true, {
     message: "Debes confirmar que los datos de pago son correctos.",
   }),
 });
 
 type PagoFormValues = z.infer<typeof pagoSchema>;
 
-const METODOS_PAGO = [
-  { value: "transferencia", label: "Transferencia bancaria", description: "Desde tu cuenta a la cuenta de la universidad." },
-  { value: "consignacion", label: "Consignación en banco", description: "Pago presencial en entidad bancaria." },
-  { value: "pse", label: "PSE", description: "Pago en línea débito a cuenta bancaria." },
-  { value: "tarjeta", label: "Tarjeta de crédito/débito", description: "Pago en línea con tarjeta." },
-] as const;
-
 export default function PagoPage() {
   const router = useRouter();
-  const pago = useInscripcionStore((s) => s.pago);
-  const setPago = useInscripcionStore((s) => s.setPago);
+  const [errorServidor, setErrorServidor] = useState<string | null>(null);
 
   const {
     register,
@@ -45,48 +37,44 @@ export default function PagoPage() {
     formState: { errors, isSubmitting },
   } = useForm<PagoFormValues>({
     resolver: zodResolver(pagoSchema),
-    defaultValues: pago
-      ? {
-          ...pago,
-          metodoPago: pago.metodoPago ?? undefined,
-          confirmaDatos: pago.confirmaDatos ? (true as const) : undefined,
-        }
-      : undefined,
   });
 
   const onSubmit = async (data: PagoFormValues) => {
-    setPago(data);
-    router.push("/inscripcion/confirmacion");
+    setErrorServidor(null);
+    try {
+      await registrarPago(data);
+      toast.success("Pago registrado. Tu inscripción quedó en revisión.");
+      router.push(RUTAS_INSCRIPCION.confirmacion);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return;
+      if (err instanceof ApiError && err.status === 409) {
+        toast.error(err.message);
+        router.push(RUTAS_INSCRIPCION.documentos);
+        return;
+      }
+      setErrorServidor(err instanceof Error ? err.message : "Ocurrió un error inesperado.");
+    }
   };
 
   return (
     <div>
-      <h1 className="font-serif text-3xl text-navy-900">
+      <p className="text-xs font-bold tracking-wide text-green-600">PASO 4 DE 5</p>
+      <h1 className="mt-2 font-serif text-3xl text-navy-900">
         Registra tu
         <br />
         <span className="italic">pago</span>
       </h1>
       <p className="mt-2 text-sm text-gray-500">
-        Selecciona el método de pago y registra los datos de tu transacción.
+        Registra los datos de la transacción con la que pagaste los derechos de inscripción (
+        {formatearPesos(COSTO_INSCRIPCION)}).
       </p>
 
       <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-6" noValidate>
-        <Card className="p-6">
-          <h2 className="font-serif text-xl text-navy-900">Método de pago</h2>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {METODOS_PAGO.map((metodo) => (
-              <RadioCard
-                key={metodo.value}
-                id={metodo.value}
-                label={metodo.label}
-                description={metodo.description}
-                value={metodo.value}
-                {...register("metodoPago")}
-              />
-            ))}
+        {errorServidor && (
+          <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorServidor}
           </div>
-          <FieldError message={errors.metodoPago?.message} />
-        </Card>
+        )}
 
         <Card className="p-6">
           <h2 className="font-serif text-xl text-navy-900">Datos de la transacción</h2>
@@ -102,23 +90,30 @@ export default function PagoPage() {
               <FieldError message={errors.fechaPago?.message} />
             </div>
             <div className="sm:col-span-2">
-              <Label htmlFor="banco">Banco</Label>
-              <Input id="banco" hasError={!!errors.banco} {...register("banco")} />
-              <FieldError message={errors.banco?.message} />
+              <Label htmlFor="bancoPago">Banco</Label>
+              <Input id="bancoPago" hasError={!!errors.bancoPago} {...register("bancoPago")} />
+              <FieldError message={errors.bancoPago?.message} />
             </div>
           </div>
 
           <div className="mt-6">
             <Checkbox
-              id="confirmaDatos"
+              id="confirmacionVeracidad"
               label="Confirmo que los datos de pago registrados son correctos."
-              {...register("confirmaDatos")}
+              {...register("confirmacionVeracidad")}
             />
-            <FieldError message={errors.confirmaDatos?.message} />
+            <FieldError message={errors.confirmacionVeracidad?.message} />
           </div>
         </Card>
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => router.push(RUTAS_INSCRIPCION.documentos)}
+            className="text-sm font-medium text-gray-500 hover:text-navy-900"
+          >
+            ← Volver a documentos
+          </button>
           <Button type="submit" variant="secondary" arrow loading={isSubmitting}>
             Confirmar inscripción
           </Button>
